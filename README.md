@@ -2,7 +2,7 @@ Zuckerman Numbers
 =================
 
 What do the numbers 36 and 384 have in common? They are both evenly
-divisible by the product of their digits: $36 = 2 \times 3 \time 6$
+divisible by the product of their digits: $36 = 2 \times 3 \times 6$
 and $384 = 4 \times 3 \times 8 \times 4$. We call a positive integer with
 this property a *Zuckerman Number*. The OEIS (Online Encyclopedia of
 Integer Sequences) details properties of these
@@ -10,6 +10,7 @@ numbers in a number of sequences:
 1) [Numbers that are divisible by the product of their digits.](https://oeis.org/A007602 "Zuckerman Numbers")
 2) [Quotients obtained when the Zuckerman numbers are divided by the product of their digits.](https://oeis.org/A288069 "quotients")
 3) [Smallest number that is n times the product of its digits or 0 if impossible. ](https://oeis.org/A056770 "Smallest")
+
 In investigating this we can slightly alter the problem: given a
 positive integer multiple $m$, find all positive integers, $n$ so that
 $n$ is equal to $m$ times the product of the decimal digits of $n$.
