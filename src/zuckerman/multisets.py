@@ -27,9 +27,8 @@
   x and ceil(x).
 
 """
-
-from typing import Tuple, List, Iterable
-from itertools import product, chain
+from typing import Tuple, List, Iterable, Callable
+from itertools import product, chain, takewhile, pairwise, count
 from functools import partial
 from math import floor, ceil, log, exp, prod
 from collections import Counter
@@ -48,6 +47,11 @@ def binsearch(fun: Callable[[int], int], bot: int, top: int) -> int:
       so that f(x) <= 0.
       If all x in [a,b] satisfy f(x) > 0 then return a - 1
     """
+    if fun(bot) > 0:
+        return bot - 1
+    elif fun(top) <= 0:
+        return top
+    # Now we know that there is some a in [bot,top] with f(a) <= 0
     t_bot = bot
     t_top = top
     while t_bot < t_top:
@@ -56,7 +60,15 @@ def binsearch(fun: Callable[[int], int], bot: int, top: int) -> int:
             t_bot = mid
         else:
             t_top = mid - 1
-     return t_top
+    if not (fun(t_top) <= 0 and fun(t_top + 1) > 0):
+        raise ValueError('binsearch failed :{fun(t_top)}, {fun(t_top+1)}')
+    return t_top
+
+def bot_func(intrvl: INTRVL, top: int, arg: int) -> int:
+    return top ** arg - intrvl[1]
+
+def top_func(intrvl: INTRVL, top: int, plen: int, arg: int) -> int:
+    return intrvl[0] - top ** (plen - arg) * (top - 1) ** arg
 
 def multipliers(intrvl: INTRVL, top: int, plen: int) -> Tuple[int, int]:
     """
@@ -65,15 +77,16 @@ def multipliers(intrvl: INTRVL, top: int, plen: int) -> Tuple[int, int]:
       And bot_mult is the smallest integer, s >= 1, so that
       top ^ s * (top - 1) ^(p - s) >= intrvl[0].
 
+      Instead we look for the largest integer x in [0, p-1]
+      so that top ^ (p-x) * (top - 1) ^x >= intrvl[0]
+      Note that intrvl[0] - top ^ (p-x) * (top - 1) ^x is nondecreasing in x
+      since top^(p-x - 1) * (top - 1)^(x+1) / (top^(p-x) * (top - 1) ^x)
+      = (top - 1)/top
+
       If we don't use floats, we could to this by binary search.
     """
-    def bot_func(arg: int) -> int:
-        return top ** arg - intrvl[1]
-
-    def top_func(arg: int) -> int:
-        return intrvl[0] - top ** (plen - arg) * (top - 1) ** arg
-
-    return binsearch(bot_func, 1, plen), plen - binsearch(top_func, 0, plen - 1)
+    return (binsearch(partial(bot_func, intrvl, top), 1, plen),
+            plen - binsearch(partial(top_func, intrvl, top, plen), 0, plen - 1))
 
 def restricted_partitions(num: int, bound: int) -> int:
     """
@@ -116,29 +129,26 @@ def very_restricted_parts(plen: int, bound: int, intrvl: INTRVL) -> Iterable[Tup
       When the largest element, x, occurs exactly k times, it is
       necessary that x^k <= I[1], so we have k <= log(I[1]) / log(x).
 
-
       Note: this means that the case x=1 must be treated specially
 
+      Note that we only use integer arithemtic, since, for large values,
+      floating point may be inaccurate.
     """ 
     if intrvl[1] < intrvl[0]:
         pass # If the interval is empty do nothing
-        # Must have bound ** plen in I
-        # of I[0] / plen <= bound
     elif plen == 0: # Needed in the case that the sequence is (a,a,...,a)
         yield ()
+        # Must have bound ** plen in I
+        # of I[0] / plen <= bound
     elif plen == 1:
         # all integers in the interval
         yield from ((_,) for _ in range(max(1, intrvl[0]),
-                                    min(bound, intrvl[1] + 1)))
+                                    min(bound, intrvl[1]) + 1))
     elif plen > 1:
-        # Find bounds
-        # Need pth root
-        # Find the smallest possible value for the max element
-        # lbound is the smallest t such that t ** plen >= I[0]
+        # Find the smallest and largest possible value we can insert
+        # lbound is the smallest t such that t ^ plen >= I[0]
         lbound = bound - binsearch(lambda _: intrvl[0] - (bound  - _) ** plen, 0, bound - 1)
-        # lbound = max(1, ceil(exp(log(intrvl[0]) / plen))) # Replace with Newton's method
-        # l^plen >= I[0]
-        # smallest possible value for the largest element
+        # largest possible value for the largest element
         ubound = min(bound, intrvl[1])
         # Note that if lbound > ubound this produces nothing
         # Treat 1 specially
@@ -147,21 +157,16 @@ def very_restricted_parts(plen: int, bound: int, intrvl: INTRVL) -> Iterable[Tup
                 yield plen * (1,)
         for top in range(max(2, lbound), ubound + 1):
             # All possible values for the largest element
-            # form new interval
-            # Look at all multiples
-            # diff = log(top)
-            # Find ranges
-            # We must have top^t < I[1] where t is the number of occurences
-            top_mult, bot_mult = multipliers(intrvl, top, plen) 
-            # top_mult = min(plen, floor(exp(log(intrvl[1]) / log(top))))
-            # Since top > 1, if there are s occurences of top
-            # We must have top ^ s * (top - 1)^(p-s) >= I[0]
-            # Or (top/(top - 1))^s >= I[0] / (top - 1)^p
-            # Taking logs, s >= (log(I[0]) - p * log(top - 1))/ log(top/(top-1))
-            # bot_mult = max(1, ceil((log(intrvl[0]) - plen * log(top - 1))
-            #                        / (log(top) - log(top-1))))
+            # Let t be the multiplicity of the top element
+            # We must have top^t < I[1].
+            # We also must have top^t * (top - 1)^(p-t) >= I[0].
+            # Namely, if there are t occurences of top, the largest
+            # the product can be is top^t (top - 1)^(p-t)
+            # This is taken care of in multipliers
+            top_mult, bot_mult = multipliers(intrvl, top, plen)
             for kval in range(bot_mult, top_mult + 1):
-                nintrvl = [iceil(intrvl[0], top ** kval), intrvl[1] // (top ** kval)]
+                denom = top ** kval
+                nintrvl = [iceil(intrvl[0], denom), intrvl[1] // denom]
                 yield from (_ + kval * (top,)
                             for _ in very_restricted_parts(plen - kval, top - 1, nintrvl))
                             
@@ -202,16 +207,23 @@ def count_restricted_parts(plen: int, bound: int, intrvl: Tuple[float, ...]) -> 
 
 def candidates(base: int, mval: int, cutoff: int | None = None) -> Iterable[Tuple[int, ...]]:
 
-    # Find the upper bound
+    # Find the upper bound the largest k so that m * (base - 1) ^ k >= base^(k-1)
+    # Is there an a priori upper bound on this (without using floating point)?
+    def upper_bound(arg: int) -> int:
+        pass
+
     upper = floor(log(mval * base)/(log(base/(base - 1)))) if cutoff is None else cutoff
     # print(f'upper = {upper}')
-    intx = [((base ** (_ - 1) + mval - 1) // mval, (base ** _ - 1) // mval)
-            for _ in range(1, upper + 1)]
-    intervals = ((_, (log(val[0]), log(val[1]))) for _, val in enumerate(intx, start=1)
-                 if val[0] > 0 and val[1] > 0)
-    # print(f'{intervals}')
-    # return sum((count_restricted_parts(_, base - 1, intrvl)
-    #             for _, intrvl in enumerate(intervals, start=1)))
+    base_powers = map(lambda arg: arg[1],
+                      takewhile(
+                          lambda elt: mval * elt[0] >= elt[1],
+                          (((base - 1) ** _, base ** (_ - 1))
+                          for _ in count(1))
+                      ))
+    intx = ((iceil(_[0], mval), (_[1] - 1) // mval)
+            for _ in pairwise(base_powers))
+    intervals = [(_, val) for _, val in enumerate(intx, start=1)
+                 if val[0] <= val[1]] # non-empty intervals
     yield from chain(*(very_restricted_parts(_, base - 1, intrvl)
                        for _, intrvl in intervals))
 
@@ -225,8 +237,9 @@ def get_digits(base: int, val: int) -> Tuple[int, ...]:
 
 def multiples(base: int, mval: int) -> Iterable[Tuple[int, ...]]:
 
-    yield from (result for _ in candidates(base, mval)
-                if tuple(sorted(get_digits(base, result := mval * prod(_)))) == _)
+    if mval % base != 0:
+        yield from (result for _ in candidates(base, mval)
+                    if tuple(sorted(get_digits(base, result := mval * prod(_)))) == _)
 
 def check_candidate(base: int, mval: int, cval: Tuple[int, ...]) -> bool:
     return ((ppp := prod(cval) * mval ) >= base ** (len(cval) - 1)
